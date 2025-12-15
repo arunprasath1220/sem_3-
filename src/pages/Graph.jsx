@@ -1,6 +1,8 @@
+// Graph.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import "./Graph.css";
 
+/* 🔹 DUMMY DATA (REMOVE LATER) */
 const DUMMY_POINTS = [
   { id: 1, x: 10, y: 20, severity: "critical", status: "open", ward: "North", date: "2025-12-10" },
   { id: 2, x: 35, y: 70, severity: "critical", status: "open", ward: "South", date: "2025-12-12" },

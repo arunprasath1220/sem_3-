@@ -3,7 +3,7 @@
    ======================================== */
 
 .history-container {
-  background: #ffffff;
+  background: #f9fafb;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -17,9 +17,9 @@
 
 .history-card {
   background: #ffffff;
-  border-radius: 8px;
-  padding: 0;
-  box-shadow: none;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -42,14 +42,6 @@
   letter-spacing: -0.02em;
 }
 
-.history-card .eyebrow {
-  font-size: 13px;
-  text-transform: none;
-  letter-spacing: 0.02em;
-  color: #6b7280;
-  font-weight: 500;
-}
-
 .history-card .muted {
   margin-top: 6px;
   font-size: 14px;
@@ -67,84 +59,138 @@
   background: #ffffff;
 }
 
-.history-card .pill.warning {
-  color: #92400e;
-  background: #fef3c7;
-  border-color: #fcd34d;
+.history-card .pill.success {
+  border-color: #86efac;
+  color: #166534;
+  background: #dcfce7;
 }
 
-/* ========== Timeline ========== */
-.timeline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* ========== Search Bar ========== */
+.history-search {
+  margin-bottom: 24px;
+}
+
+.history-search .search-input {
+  width: 100%;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  font-size: 15px;
+  background: #ffffff;
+  max-width: 500px;
+}
+
+.history-search .search-input:focus {
+  outline: none;
+  border-color: #24478f;
+  box-shadow: 0 0 0 3px rgba(36, 71, 143, 0.1);
+}
+
+/* ========== Table ========== */
+.history-table-wrapper {
+  overflow-x: hidden;
+  overflow-y: auto;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  width: 100%;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 20px;
 }
 
-.timeline li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 12px;
-  align-items: start;
-  padding: 12px 0;
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: auto;
+}
+
+.history-table thead {
+  background: #f9fafb;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.timeline li:last-child {
-  border-bottom: none;
+.history-table th {
+  padding: 16px 12px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-/* ========== Timeline Dot ========== */
-.timeline .dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #24478f;
-  margin-top: 4px;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 3px #f5f7fb;
+.history-table td {
+  padding: 18px 12px;
+  text-align: left;
+  border-bottom: 1px solid #f3f4f6;
+  color: #0f172a;
+  background: #ffffff;
 }
 
-/* ========== Timeline Content ========== */
-.timeline li > div:last-child {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.history-table tbody tr:hover {
+  background: #fafbfc;
 }
 
-.timeline .label {
-  font-size: 13px;
+.history-table .pothole-id {
   font-weight: 600;
   color: #24478f;
-  margin: 0;
-  letter-spacing: 0.01em;
 }
 
-.timeline li p {
-  margin: 0;
-  font-size: 15px;
-  color: #374151;
-  line-height: 1.6;
+.history-table .location {
+  color: #6b7280;
+  font-family: monospace;
+  font-size: 12px;
 }
 
-/* ========== Empty State ========== */
-.timeline-empty {
-  display: flex;
-  flex-direction: column;
+/* ========== Severity Pills ========== */
+.pill-danger,
+.pill-warning,
+.pill-success {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  height: 200px;
-  color: #64748b;
-  font-size: 14px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
 }
 
-.timeline-empty svg {
-  width: 48px;
-  height: 48px;
-  margin-bottom: 12px;
-  opacity: 0.5;
+.pill-danger {
+  background: #ef4444;
+}
+
+.pill-warning {
+  background: #f59e0b;
+}
+
+.pill-success {
+  background: #22c55e;
+}
+
+/* ========== Status Badge ========== */
+.status-verified {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+/* ========== Footer ========== */
+.history-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #16a34a;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 /* ========== Responsive Design ========== */

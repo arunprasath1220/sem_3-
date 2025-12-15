@@ -1,6 +1,11 @@
 // Dashboard.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import "./Dashboard.css";
+import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
+import AssignmentTurnedInOutlinedIcon from "@mui/icons-material/AssignmentTurnedInOutlined";
+import BuildOutlinedIcon from "@mui/icons-material/BuildOutlined";
+import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 
 /* 🔹 DUMMY DATA (REMOVE LATER) */
 const DUMMY_SUMMARY = {
@@ -123,35 +128,45 @@ function Dashboard() {
               <p className="summary-label">Reported</p>
               <h2>{summary.reported}</h2>
             </div>
-            <div className="summary-icon">⚠️</div>
+            <div className="summary-icon">
+              <ReportProblemOutlinedIcon sx={{ fontSize: 32, color: "#24478f" }} />
+            </div>
           </div>
           <div className="summary-card">
             <div>
               <p className="summary-label">Assigned</p>
               <h2>{summary.assigned}</h2>
             </div>
-            <div className="summary-icon">⏱️</div>
+            <div className="summary-icon">
+              <AssignmentTurnedInOutlinedIcon sx={{ fontSize: 32, color: "#24478f" }} />
+            </div>
           </div>
           <div className="summary-card">
             <div>
               <p className="summary-label">In Progress</p>
               <h2>{summary.inProgress}</h2>
             </div>
-            <div className="summary-icon">🔧</div>
+            <div className="summary-icon">
+              <BuildOutlinedIcon sx={{ fontSize: 32, color: "#f59e0b" }} />
+            </div>
           </div>
           <div className="summary-card">
             <div>
               <p className="summary-label">Pending</p>
               <h2>{summary.pending}</h2>
             </div>
-            <div className="summary-icon">📋</div>
+            <div className="summary-icon">
+              <PendingActionsOutlinedIcon sx={{ fontSize: 32, color: "#f59e0b" }} />
+            </div>
           </div>
           <div className="summary-card">
             <div>
               <p className="summary-label">Verified</p>
               <h2>{summary.verified}</h2>
             </div>
-            <div className="summary-icon">✓</div>
+            <div className="summary-icon">
+              <CheckCircleOutlineIcon sx={{ fontSize: 32, color: "#16a34a" }} />
+            </div>
           </div>
         </div>
 

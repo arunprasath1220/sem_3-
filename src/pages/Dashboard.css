@@ -127,9 +127,10 @@
 }
 
 .summary-icon {
-  font-size: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  opacity: 0.7;
 }
 
 /* ========== Table Section ========== */
