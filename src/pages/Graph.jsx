@@ -6,7 +6,7 @@ import "./Graph.css";
 
 /* 🔹 DUMMY DATA with real latitude/longitude coordinates */
 const DUMMY_POINTS = [
-  { id: 1, lat: 13.0827, lng: 80.2707, severity: "critical", status: "open", ward: "North", date: "2025-12-10" },
+  { id: 1, lat: 8.4207098, lng: 78.0309535, severity: "critical", status: "open", ward: "North", date: "2025-12-10" },
   { id: 2, lat: 13.0500, lng: 80.2500, severity: "critical", status: "open", ward: "South", date: "2025-12-12" },
   { id: 3, lat: 13.0900, lng: 80.2900, severity: "medium",   status: "in-progress", ward: "East",  date: "2025-12-09" },
   { id: 4, lat: 13.0650, lng: 80.2200, severity: "medium",   status: "in-progress", ward: "West",  date: "2025-12-15" },
@@ -15,16 +15,42 @@ const DUMMY_POINTS = [
 ];
 
 function Graph() {
-  const [points, setPoints] = useState([]);
+  // Points: load from localStorage if present, else dummy
+  const [points, setPoints] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("graph_points") || "null");
+      return Array.isArray(saved) && saved.length ? saved : DUMMY_POINTS;
+    } catch (_) {
+      return DUMMY_POINTS;
+    }
+  });
+    // On page refresh or mount, ensure we have latest stored points if any
+    useEffect(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("graph_points") || "null");
+        if (Array.isArray(saved) && saved.length) {
+          setPoints(saved);
+        } else {
+          setPoints(DUMMY_POINTS);
+        }
+      } catch (_) {
+        setPoints(DUMMY_POINTS);
+      }
+    }, []);
+
+    const refreshPoints = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("graph_points") || "null");
+        setPoints(Array.isArray(saved) && saved.length ? saved : DUMMY_POINTS);
+      } catch (_) {
+        setPoints(DUMMY_POINTS);
+      }
+    };
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("all");
   const [status, setStatus] = useState("all");
   const [ward, setWard] = useState("all");
   const [date, setDate] = useState("");
-
-  useEffect(() => {
-    setPoints(DUMMY_POINTS);
-  }, []);
 
   const getColor = (severity) => {
     if (severity === "critical") return "#f04438";
@@ -103,11 +129,13 @@ function Graph() {
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                 />
+                <button className="btn-outline" onClick={refreshPoints}>Refresh</button>
               </div>
             </div>
 
             <div className="graph-canvas">
               <MapContainer 
+                key={points.length} // force refresh when points array size changes
                 center={mapCenter} 
                 zoom={mapZoom} 
                 style={{ height: "100%", width: "100%", minHeight: "600px" }}
