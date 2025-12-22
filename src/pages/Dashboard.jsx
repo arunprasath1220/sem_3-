@@ -1,5 +1,5 @@
 // Dashboard.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import "./Dashboard.css";
 import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
 import AssignmentTurnedInOutlinedIcon from "@mui/icons-material/AssignmentTurnedInOutlined";
@@ -7,14 +7,17 @@ import BuildOutlinedIcon from "@mui/icons-material/BuildOutlined";
 import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 
-// 🔹 DUMMY DATA
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+// 🔹 DUMMY DATA (fallback when API is unavailable)
 
 // Potholes (reports) - grouped by road with matching statuses
 const DUMMY_REPORTS = [
   // Road 1: Anna Salai - Reported status (3 potholes)
   {
     id: "PH-2024-001",
-    location: "13.0827, 80.2707",
+    location: "8.428379, 78.0254488",
     severity_count: 8,
     status: "Reported",
     reportedTime: "Jan 15, 2024 09:30"
@@ -333,6 +336,7 @@ function Dashboard() {
   });
   const [reports, setReports] = useState([]);
   const [patches, setPatches] = useState([]);
+  const [contractors, setContractors] = useState(DUMMY_CONTRACTORS);
   const [query, setQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState("All Severity");
   const [statusFilter, setStatusFilter] = useState("All Status");
@@ -340,6 +344,9 @@ function Dashboard() {
   const [modalMode, setModalMode] = useState("assign"); // 'assign' | 'view' | 'verify'
   const [selectedContractorId, setSelectedContractorId] = useState("");
   const [loadingRoads, setLoadingRoads] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [apiError, setApiError] = useState(null);
+  const [useApi, setUseApi] = useState(true);
 
   // for grouped view
   const [groupedRows, setGroupedRows] = useState([]);
@@ -355,32 +362,118 @@ function Dashboard() {
   const [batchRoadKey, setBatchRoadKey] = useState(null);
   const [batchContractorId, setBatchContractorId] = useState("");
 
-  // initial dummy sync
-  useEffect(() => {
-    // Exclude already verified items so they never reappear
-    let verifiedIds = new Set();
-    try {
-      const verified = JSON.parse(localStorage.getItem("verified_repairs") || "[]");
-      verifiedIds = new Set((Array.isArray(verified) ? verified : []).map((x) => x.id));
-    } catch (_) {}
+  // Helper to get auth token
+  const getAuthToken = () => localStorage.getItem('admin_token');
 
-    setReports(
-      DUMMY_REPORTS
-        .filter((r) => !verifiedIds.has(r.id))
-        .map((r) => ({
-          ...r,
-          roadName: ""
-        }))
-    );
-    setPatches(
-      DUMMY_PATCHES
-        .filter((p) => !verifiedIds.has(p.id))
-        .map((p) => ({
-          ...p,
-          roadName: ""
-        }))
-    );
+  // Helper to map backend status to frontend status
+  const mapBackendStatus = (status) => {
+    const statusMap = {
+      'pending': 'Reported',
+      'assigned': 'Assigned',
+      'in_progress': 'Assigned',
+      'pending_verification': 'Pending Verification',
+      'verified': 'Verified',
+      'completed': 'Verified'
+    };
+    return statusMap[status] || 'Reported';
+  };
+
+  // Fetch data from API
+  const fetchFromApi = useCallback(async () => {
+    setIsLoading(true);
+    setApiError(null);
+    
+    try {
+      // Fetch aggregated locations (grouped potholes)
+      const locationsRes = await fetch(`${API_BASE_URL}/reports/aggregated/locations`);
+      
+      if (!locationsRes.ok) {
+        throw new Error('Failed to fetch locations');
+      }
+      
+      const locationsData = await locationsRes.json();
+      
+      // Fetch contractors from public endpoint (no auth required)
+      let contractorsData = DUMMY_CONTRACTORS;
+      try {
+        const contractorsRes = await fetch(`${API_BASE_URL}/reports/contractors/list`);
+        if (contractorsRes.ok) {
+          const data = await contractorsRes.json();
+          if (data.contractors && data.contractors.length > 0) {
+            contractorsData = data.contractors;
+            console.log('Loaded', contractorsData.length, 'contractors from API');
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch contractors, using dummy data:', e);
+      }
+      setContractors(contractorsData);
+      
+      // Map backend data to frontend format
+      if (locationsData.locations && locationsData.locations.length > 0) {
+        const mappedReports = locationsData.locations.map((loc, index) => ({
+          id: `PH-API-${loc.id || index}`,
+          dbId: loc.id,
+          location: `${loc.latitude}, ${loc.longitude}`,
+          severity_count: loc.total_potholes * (loc.highest_severity === 'High' ? 15 : loc.highest_severity === 'Medium' ? 8 : 3),
+          status: mapBackendStatus(loc.status),
+          contractorId: loc.contractor_id ? String(loc.contractor_id) : null,
+          reportedTime: loc.last_reported_at ? new Date(loc.last_reported_at).toLocaleString(undefined, {
+            month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+          }) : "--",
+          roadName: "",
+          gridId: loc.grid_id,
+          totalPotholes: loc.total_potholes,
+          totalPatchy: loc.total_patchy
+        }));
+        
+        // Exclude already verified items
+        let verifiedIds = new Set();
+        try {
+          const verified = JSON.parse(localStorage.getItem("verified_repairs") || "[]");
+          verifiedIds = new Set((Array.isArray(verified) ? verified : []).map((x) => x.id));
+        } catch (_) {}
+        
+        setReports(mappedReports.filter(r => !verifiedIds.has(r.id)));
+        setPatches([]); // Patches come from road_anomalies, handled separately
+        setUseApi(true);
+        console.log('Loaded', mappedReports.length, 'locations from API');
+      } else {
+        // No data from API, fall back to dummy
+        throw new Error('No data from API');
+      }
+    } catch (error) {
+      console.error('API fetch failed:', error);
+      setApiError(error.message);
+      setUseApi(false);
+      
+      // Fall back to dummy data
+      let verifiedIds = new Set();
+      try {
+        const verified = JSON.parse(localStorage.getItem("verified_repairs") || "[]");
+        verifiedIds = new Set((Array.isArray(verified) ? verified : []).map((x) => x.id));
+      } catch (_) {}
+
+      setReports(
+        DUMMY_REPORTS
+          .filter((r) => !verifiedIds.has(r.id))
+          .map((r) => ({ ...r, roadName: "" }))
+      );
+      setPatches(
+        DUMMY_PATCHES
+          .filter((p) => !verifiedIds.has(p.id))
+          .map((p) => ({ ...p, roadName: "" }))
+      );
+      setContractors(DUMMY_CONTRACTORS);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchFromApi();
+  }, [fetchFromApi]);
 
   // Recompute summary based on unique roads per status
   const recomputeSummary = () => {
@@ -630,19 +723,42 @@ function Dashboard() {
     setSelectedContractorId("");
   };
 
-  const doAssign = () => {
+  const doAssign = async () => {
     if (!activeReportId || !selectedContractorId) return;
-    const contractor = DUMMY_CONTRACTORS.find(
-      (c) => c.id === selectedContractorId
-    );
+    
+    const report = getReportById(activeReportId);
+    
+    // Try to assign via public API endpoint if we have dbId
+    if (report?.dbId && useApi) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/reports/assignments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            locationId: report.dbId,
+            contractorId: parseInt(selectedContractorId),
+            notes: `Assigned from admin dashboard`
+          })
+        });
+        
+        if (!response.ok) {
+          console.warn('API assign failed, updating locally');
+        } else {
+          console.log('Assignment saved to database');
+        }
+      } catch (error) {
+        console.error('Assignment API error:', error);
+      }
+    }
+    
+    // Update local state
+    const contractor = contractors.find((c) => c.id === selectedContractorId);
     setReports((prev) =>
       prev.map((r) =>
         r.id === activeReportId
-          ? {
-              ...r,
-              contractorId: selectedContractorId,
-              status: "Assigned"
-            }
+          ? { ...r, contractorId: selectedContractorId, status: "Assigned" }
           : r
       )
     );
@@ -654,7 +770,7 @@ function Dashboard() {
   const pushToHistory = (report) => {
     console.debug("pushToHistory =>", report?.id, report?.roadName, report?.status);
     const sev = severityLabelFromCount(report.severity_count);
-    const contractor = DUMMY_CONTRACTORS.find(
+    const contractor = contractors.find(
       (c) => c.id === (report.contractorId || selectedContractorId)
     );
     const proof = DUMMY_VERIFICATION[report.id];
@@ -691,10 +807,28 @@ function Dashboard() {
     } catch (_) {}
   };
 
-  const doVerify = () => {
+  const doVerify = async () => {
     const r = getReportById(activeReportId);
     if (!r) return closeModal();
     console.debug("doVerify: verifying single report", r.id, r.roadName, r.status);
+    
+    // Try to verify via API
+    const token = getAuthToken();
+    if (token && r.dbId && useApi) {
+      try {
+        await fetch(`${API_BASE_URL}/admin/verify/${r.dbId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ notes: 'Verified from admin dashboard' })
+        });
+      } catch (error) {
+        console.error('Verify API error:', error);
+      }
+    }
+    
     setReports((prev) => prev.filter((x) => x.id !== r.id));
     pushToHistory(r);
     closeModal();
@@ -718,7 +852,7 @@ function Dashboard() {
     setBatchContractorId("");
   };
 
-  const doBatchAssign = () => {
+  const doBatchAssign = async () => {
     if (!batchRoadKey || !batchContractorId) return;
     
     const roadReports = getReportsForRoad(batchRoadKey);
@@ -728,7 +862,30 @@ function Dashboard() {
     
     if (unassignedReports.length === 0 && unassignedPatches.length === 0) return;
     
-    const contractor = DUMMY_CONTRACTORS.find((c) => c.id === batchContractorId);
+    // Try batch assign via public API (assign each location individually)
+    if (useApi) {
+      const locationsToAssign = unassignedReports.filter(r => r.dbId);
+      for (const report of locationsToAssign) {
+        try {
+          await fetch(`${API_BASE_URL}/reports/assignments`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              locationId: report.dbId,
+              contractorId: parseInt(batchContractorId),
+              notes: 'Batch assigned from admin dashboard'
+            })
+          });
+        } catch (error) {
+          console.error('Batch assign API error for location', report.dbId, ':', error);
+        }
+      }
+      console.log(`Assigned ${locationsToAssign.length} locations to contractor`);
+    }
+    
+    const contractor = contractors.find((c) => c.id === batchContractorId);
     
     // Assign potholes
     setReports((prev) =>
@@ -758,7 +915,7 @@ function Dashboard() {
     closeBatchModal();
   };
 
-  const doBatchVerify = () => {
+  const doBatchVerify = async () => {
     if (!batchRoadKey) return;
     
     const roadReports = getReportsForRoad(batchRoadKey);
@@ -769,6 +926,26 @@ function Dashboard() {
     console.debug("doBatchVerify => roadKey", batchRoadKey, "pendingReports", pendingReports.length, "pendingPatches", pendingPatches.length);
     if (pendingReports.length === 0 && pendingPatches.length === 0) return;
     
+    // Try batch verify via API
+    const token = getAuthToken();
+    if (token && useApi) {
+      const locationIds = pendingReports.filter(r => r.dbId).map(r => r.dbId);
+      if (locationIds.length > 0) {
+        try {
+          await fetch(`${API_BASE_URL}/admin/verify/batch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ locationIds, notes: 'Batch verified from admin dashboard' })
+          });
+        } catch (error) {
+          console.error('Batch verify API error:', error);
+        }
+      }
+    }
+    
     // Move all potholes to history
     pendingReports.forEach((r) => {
       console.debug("doBatchVerify: push report", r.id, r.roadName);
@@ -777,7 +954,7 @@ function Dashboard() {
     
     // Move all patches to history
     pendingPatches.forEach((p) => {
-      const contractor = DUMMY_CONTRACTORS.find(
+      const contractor = contractors.find(
         (c) => c.id === p.contractorId
       );
       const entry = {
@@ -872,8 +1049,8 @@ function Dashboard() {
               view individual potholes.
             </p>
           </div>
-          <span className="pill success">
-            {loadingRoads ? "Loading roads..." : "Online"}
+          <span className={`pill ${apiError ? 'warning' : 'success'}`}>
+            {isLoading ? "Loading..." : loadingRoads ? "Loading roads..." : apiError ? "Offline Mode" : useApi ? "Connected" : "Demo Mode"}
           </span>
         </div>
 
@@ -1160,7 +1337,7 @@ function Dashboard() {
                       <>
                         {pageItems.map((report) => {
                           const contractor = report.contractorId
-                            ? DUMMY_CONTRACTORS.find((c) => c.id === report.contractorId)
+                            ? contractors.find((c) => c.id === report.contractorId)
                             : null;
                           return (
                           <tr key={report.id}>
@@ -1245,7 +1422,7 @@ function Dashboard() {
                       <>
                         {pageItems.map((pt) => {
                           const contractor = pt.contractorId
-                            ? DUMMY_CONTRACTORS.find((c) => c.id === pt.contractorId)
+                            ? contractors.find((c) => c.id === pt.contractorId)
                             : null;
                           return (
                           <tr key={pt.id}>
@@ -1295,7 +1472,7 @@ function Dashboard() {
               const r = getReportById(activeReportId);
               const sevLabel = severityLabelFromCount(r?.severity_count);
               const contractor = r?.contractorId
-                ? DUMMY_CONTRACTORS.find((c) => c.id === r.contractorId)
+                ? contractors.find((c) => c.id === r.contractorId)
                 : null;
               return (
                 <>
@@ -1423,7 +1600,7 @@ function Dashboard() {
                             <option value="">
                               Choose a contractor...
                             </option>
-                            {DUMMY_CONTRACTORS.map((c) => (
+                            {contractors.map((c) => (
                               <option key={c.id} value={c.id}>
                                 {c.name} - {c.company}
                               </option>
@@ -1555,7 +1732,7 @@ function Dashboard() {
                   onChange={(e) => setBatchContractorId(e.target.value)}
                 >
                   <option value="">Choose a contractor...</option>
-                  {DUMMY_CONTRACTORS.map((c) => (
+                  {contractors.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} - {c.company}
                     </option>
@@ -1585,7 +1762,7 @@ function Dashboard() {
         const pendingVerification = roadReports.filter((r) => r.status === "Pending Verification");
         const firstPending = pendingVerification[0];
         const contractor = firstPending?.contractorId
-          ? DUMMY_CONTRACTORS.find((c) => c.id === firstPending.contractorId)
+          ? contractors.find((c) => c.id === firstPending.contractorId)
           : null;
         const proof = firstPending ? DUMMY_VERIFICATION[firstPending.id] : null;
         

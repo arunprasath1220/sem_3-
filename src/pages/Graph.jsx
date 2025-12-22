@@ -4,7 +4,10 @@ import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import "./Graph.css";
 
-/* 🔹 DUMMY DATA with real latitude/longitude coordinates */
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+/* 🔹 DUMMY DATA with real latitude/longitude coordinates (fallback) */
 const DUMMY_POINTS = [
   { id: 1, lat: 8.4207098, lng: 78.0309535, severity: "critical", status: "open", ward: "North", date: "2025-12-10" },
   { id: 2, lat: 13.0500, lng: 80.2500, severity: "critical", status: "open", ward: "South", date: "2025-12-12" },
@@ -14,38 +17,70 @@ const DUMMY_POINTS = [
   { id: 6, lat: 13.0950, lng: 80.2450, severity: "critical", status: "open",        ward: "Central", date: "2025-12-14" },
 ];
 
-function Graph() {
-  // Points: load from localStorage if present, else dummy
-  const [points, setPoints] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("graph_points") || "null");
-      return Array.isArray(saved) && saved.length ? saved : DUMMY_POINTS;
-    } catch (_) {
-      return DUMMY_POINTS;
-    }
-  });
-    // On page refresh or mount, ensure we have latest stored points if any
-    useEffect(() => {
-      try {
-        const saved = JSON.parse(localStorage.getItem("graph_points") || "null");
-        if (Array.isArray(saved) && saved.length) {
-          setPoints(saved);
-        } else {
-          setPoints(DUMMY_POINTS);
-        }
-      } catch (_) {
-        setPoints(DUMMY_POINTS);
-      }
-    }, []);
+// Helper to map backend data to frontend format
+const mapBackendToFrontend = (location) => {
+  const severityMap = { 'High': 'critical', 'Medium': 'medium', 'Low': 'fixed' };
+  const statusMap = { 'pending': 'open', 'assigned': 'in-progress', 'in_progress': 'in-progress', 'verified': 'resolved', 'fixed': 'resolved' };
+  
+  return {
+    id: location.id,
+    lat: parseFloat(location.latitude || location.lat),
+    lng: parseFloat(location.longitude || location.lng),
+    severity: severityMap[location.highest_severity] || location.severity || 'medium',
+    status: statusMap[location.status] || location.status || 'open',
+    ward: location.ward || 'Unknown',
+    date: location.last_reported_at ? new Date(location.last_reported_at).toISOString().split('T')[0] : location.date
+  };
+};
 
-    const refreshPoints = () => {
+function Graph() {
+  const [points, setPoints] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Fetch points from API
+  const fetchPoints = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/reports/aggregated/locations`);
+      if (!response.ok) throw new Error('Failed to fetch locations');
+      
+      const data = await response.json();
+      if (data.locations && data.locations.length > 0) {
+        const mappedPoints = data.locations.map(mapBackendToFrontend);
+        setPoints(mappedPoints);
+        // Also save to localStorage for offline viewing
+        localStorage.setItem("graph_points", JSON.stringify(mappedPoints));
+      } else {
+        // Use localStorage or dummy data as fallback
+        const saved = JSON.parse(localStorage.getItem("graph_points") || "null");
+        setPoints(Array.isArray(saved) && saved.length ? saved : DUMMY_POINTS);
+      }
+    } catch (err) {
+      console.error('Failed to fetch map data:', err);
+      setError(err.message);
+      // Fallback to localStorage or dummy data
       try {
         const saved = JSON.parse(localStorage.getItem("graph_points") || "null");
         setPoints(Array.isArray(saved) && saved.length ? saved : DUMMY_POINTS);
       } catch (_) {
         setPoints(DUMMY_POINTS);
       }
-    };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchPoints();
+  }, []);
+
+  const refreshPoints = () => {
+    fetchPoints();
+  };
+
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("all");
   const [status, setStatus] = useState("all");
@@ -92,7 +127,9 @@ function Graph() {
                 velocity over time.
               </p>
             </div>
-            <span className="pill">Last 30 days</span>
+            <span className={`pill ${error ? 'error' : loading ? 'loading' : 'success'}`}>
+              {error ? 'Offline Mode' : loading ? 'Loading...' : `${points.length} Points`}
+            </span>
           </div>
 
           <div className="graph-panel">

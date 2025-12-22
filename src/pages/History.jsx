@@ -3,30 +3,71 @@ import React, { useEffect, useState, useMemo } from "react";
 import "./History.css";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
-/* 🔹 DUMMY DATA (REMOVE LATER) */
-const DUMMY_REPAIRS = [
-  {
-    id: "PH-2024-006",
-    location: "13.0900, 80.2560",
-    severity: "High",
-    contractor: "Mohan Das - Urban Road Solutions",
-    fixedDate: "Jan 13, 2024 15:30",
-    status: "Verified"
-  },
-  {
-    id: "PH-2024-008",
-    location: "13.0350, 80.2650",
-    severity: "Medium",
-    contractor: "Rajesh Kumar - Metro Road Works Pvt Ltd",
-    fixedDate: "Jan 11, 2024 09:00",
-    status: "Verified"
-  }
-];
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+// Helper to format date
+const formatDate = (dateStr) => {
+  if (!dateStr) return "--";
+  const date = new Date(dateStr);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+};
 
 function History() {
   const [repairs, setRepairs] = useState([]);
   const [query, setQuery] = useState("");
-  const [loadingRoads, setLoadingRoads] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [apiError, setApiError] = useState(null);
+
+  // Fetch verified history from backend API
+  const fetchHistory = async () => {
+    setIsLoading(true);
+    setApiError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/reports/history/verified`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch history: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.history || [];
+    } catch (err) {
+      console.error('API history fetch failed:', err);
+      setApiError(err.message);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Map API data to frontend format
+  const mapApiToFrontend = (item) => ({
+    id: `LOC-${item.id}`,
+    location: `${item.latitude}, ${item.longitude}`,
+    roadName: item.road_name || null,
+    severity: item.highest_severity || "Medium",
+    contractor: item.contractor_name || "Unknown",
+    fixedDate: formatDate(item.verified_at || item.completed_at),
+    status: "Verified",
+    reportCount: item.report_count || 1
+  });
+
+  useEffect(() => {
+    const loadData = async () => {
+      const apiData = await fetchHistory();
+      const mapped = apiData.map(mapApiToFrontend);
+      setRepairs(mapped);
+    };
+
+    loadData();
+  }, []);
 
   // helper: parse "lat, lon" string
   const parseLatLon = (locationStr) => {
@@ -56,44 +97,11 @@ function History() {
     );
   };
 
-  useEffect(() => {
-    // ✅ Merge built-in dummy with any verified from Dashboard stored in localStorage
-    try {
-      const extra = JSON.parse(localStorage.getItem("verified_repairs") || "[]");
-      setRepairs([...(Array.isArray(extra) ? extra : []), ...DUMMY_REPAIRS]);
-    } catch (_) {
-      setRepairs(DUMMY_REPAIRS);
-    }
-  }, []);
-
-  // Listen for runtime updates to verified repairs (dispatched from Dashboard)
-  useEffect(() => {
-    const handler = () => {
-      try {
-        const extra = JSON.parse(localStorage.getItem("verified_repairs") || "[]");
-        setRepairs([...(Array.isArray(extra) ? extra : []), ...DUMMY_REPAIRS]);
-      } catch (_) {
-        setRepairs(DUMMY_REPAIRS);
-      }
-    };
-    window.addEventListener("verifiedRepairsChanged", handler);
-    // also handle cross-tab storage events
-    const storageHandler = (ev) => {
-      if (ev.key === "verified_repairs") handler();
-    };
-    window.addEventListener("storage", storageHandler);
-    return () => {
-      window.removeEventListener("verifiedRepairsChanged", handler);
-      window.removeEventListener("storage", storageHandler);
-    };
-  }, []);
-
   // Resolve missing road names from location (only for entries without roadName)
   useEffect(() => {
     const resolveRoads = async () => {
       const need = repairs.some((r) => !r.roadName && r.location);
       if (!need) return;
-      setLoadingRoads(true);
       try {
         const updated = [];
         for (const r of repairs) {
@@ -116,13 +124,13 @@ function History() {
           }
         }
         setRepairs(updated);
-      } finally {
-        setLoadingRoads(false);
+      } catch (err) {
+        console.error("Road name resolution failed:", err);
       }
     };
-    if (repairs.length) resolveRoads();
+    if (repairs.length && !isLoading) resolveRoads();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repairs.length]);
+  }, [repairs.length, isLoading]);
 
   // Build cumulative (grouped-by-road) view
   const groupedRepairs = useMemo(() => {
@@ -132,8 +140,7 @@ function History() {
       if (!groups[road]) {
         groups[road] = {
           roadName: road,
-          potholes: 0,
-          patches: 0,
+          totalReports: 0,
           lastFixedDate: null,
           contractors: new Set(),
           ids: [],
@@ -141,16 +148,14 @@ function History() {
           severities: [],
         };
       }
-      const isPothole = (r.id || "").startsWith("PH-");
-      const isPatch = (r.id || "").startsWith("PA-");
-      if (isPothole) groups[road].potholes += 1;
-      if (isPatch) groups[road].patches += 1;
+      // Count reports (using reportCount from API)
+      groups[road].totalReports += r.reportCount || 1;
       // Track latest fixed date
-      const d = r.fixedDate ? new Date(r.fixedDate) : null;
-      if (d && (!groups[road].lastFixedDate || d > groups[road].lastFixedDate)) {
+      const d = r.fixedDate && r.fixedDate !== "--" ? new Date(r.fixedDate) : null;
+      if (d && !isNaN(d.getTime()) && (!groups[road].lastFixedDate || d > groups[road].lastFixedDate)) {
         groups[road].lastFixedDate = d;
       }
-      if (r.contractor) groups[road].contractors.add(r.contractor);
+      if (r.contractor && r.contractor !== "Unknown") groups[road].contractors.add(r.contractor);
       if (r.id) groups[road].ids.push(r.id);
       if (r.location) groups[road].locations.push(r.location);
       if (r.severity) groups[road].severities.push(r.severity);
@@ -159,8 +164,7 @@ function History() {
     // Convert to array
     const rows = Object.values(groups).map((g) => ({
       roadName: g.roadName,
-      potholes: g.potholes,
-      patches: g.patches,
+      totalReports: g.totalReports,
       lastFixedDate: g.lastFixedDate
         ? g.lastFixedDate.toLocaleString(undefined, {
             month: "short",
@@ -211,10 +215,16 @@ function History() {
           <span className="pill success">Verified & Closed</span>
         </div>
 
+        {apiError && (
+          <div className="api-error" style={{ color: "#dc2626", padding: "12px", background: "#fef2f2", borderRadius: "8px", marginBottom: "16px" }}>
+            Failed to load data: {apiError}
+          </div>
+        )}
+
         <div className="history-search">
           <input
             type="text"
-            placeholder="Search by ID, contractor, or location..."
+            placeholder="Search by road name or contractor..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="search-input"
@@ -222,47 +232,51 @@ function History() {
         </div>
 
         <div className="history-table-wrapper">
-          <table className="history-table">
-            <thead>
-              <tr>
-                <th>Road Name</th>
-                <th>Verified Potholes</th>
-                <th>Verified Patches</th>
-                <th>IDs</th>
-                <th>Locations</th>
-                <th>Severity</th>
-                <th>Last Fixed</th>
-                <th>Contractors</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredGrouped.map((row) => (
-                <tr key={row.roadName}>
-                  <td className="road-name">{row.roadName}</td>
-                  <td>{row.potholes}</td>
-                  <td>{row.patches}</td>
-                  <td>{row.ids.slice(0, 3).join(", ")}{row.ids.length > 3 ? ` (+${row.ids.length - 3})` : ""}</td>
-                  <td>{row.locations.slice(0, 2).join(" | ")}{row.locations.length > 2 ? ` (+${row.locations.length - 2})` : ""}</td>
-                  <td>
-                    <span className={severityClass(row.severity)}>{row.severity}</span>
-                  </td>
-                  <td>{row.lastFixedDate}</td>
-                  <td>{row.contractors.length ? row.contractors.join(", ") : "--"}</td>
-                  <td>
-                    <span className="status-verified">{row.status}</span>
-                  </td>
-                </tr>
-              ))}
-              {filteredGrouped.length === 0 && (
+          {isLoading ? (
+            <div style={{ textAlign: "center", padding: "48px", color: "#6b7280" }}>
+              Loading verified repairs...
+            </div>
+          ) : (
+            <table className="history-table">
+              <thead>
                 <tr>
-                  <td colSpan="6" style={{ textAlign: "center", padding: "24px", color: "#6b7280" }}>
-                    No verified roads found.
-                  </td>
+                  <th>Road Name</th>
+                  <th>Total Reports</th>
+                  <th>Location IDs</th>
+                  <th>Coordinates</th>
+                  <th>Severity</th>
+                  <th>Last Verified</th>
+                  <th>Contractors</th>
+                  <th>Status</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredGrouped.map((row) => (
+                  <tr key={row.roadName}>
+                    <td className="road-name">{row.roadName}</td>
+                    <td>{row.totalReports}</td>
+                    <td>{row.ids.slice(0, 3).join(", ")}{row.ids.length > 3 ? ` (+${row.ids.length - 3})` : ""}</td>
+                    <td>{row.locations.slice(0, 2).join(" | ")}{row.locations.length > 2 ? ` (+${row.locations.length - 2})` : ""}</td>
+                    <td>
+                      <span className={severityClass(row.severity)}>{row.severity}</span>
+                    </td>
+                    <td>{row.lastFixedDate}</td>
+                    <td>{row.contractors.length ? row.contractors.join(", ") : "--"}</td>
+                    <td>
+                      <span className="status-verified">{row.status}</span>
+                    </td>
+                  </tr>
+                ))}
+                {filteredGrouped.length === 0 && !isLoading && (
+                  <tr>
+                    <td colSpan="8" style={{ textAlign: "center", padding: "24px", color: "#6b7280" }}>
+                      No verified repairs found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
 
         <div className="history-footer">
