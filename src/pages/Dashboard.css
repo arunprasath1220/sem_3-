@@ -285,6 +285,12 @@
   border-color: #3b82f6;
 }
 
+.status-inprogress {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #d97706;
+}
+
 .status-verified {
   background: #dcfce7;
   border-color: #22c55e;

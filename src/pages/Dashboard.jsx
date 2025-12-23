@@ -366,16 +366,18 @@ function Dashboard() {
   const getAuthToken = () => localStorage.getItem('admin_token');
 
   // Helper to map backend status to frontend status
+  // Backend ENUM for aggregated_locations: 'pending', 'assigned', 'in_progress', 'pending_verification', 'verified', 'fixed'
+  // Backend ENUM for work_assignments: 'assigned', 'in_progress', 'pending_verification', 'completed', 'verified'
   const mapBackendStatus = (status) => {
     const statusMap = {
+      // aggregated_locations statuses
       'pending': 'Reported',
       'assigned': 'Assigned',
-      'in_progress': 'Assigned',
+      'in_progress': 'In Progress',
       'pending_verification': 'Pending Verification',
       'verified': 'Verified',
-      'completed': 'Verified'
     };
-    return statusMap[status] || 'Reported';
+    return statusMap[status?.toLowerCase()] || 'Reported';
   };
 
   // Fetch data from API
@@ -416,16 +418,40 @@ function Dashboard() {
           dbId: loc.id,
           location: `${loc.latitude}, ${loc.longitude}`,
           severity_count: loc.total_potholes * (loc.highest_severity === 'High' ? 15 : loc.highest_severity === 'Medium' ? 8 : 3),
-          status: mapBackendStatus(loc.status),
+          // Prefer assignment_status over location status (work_assignments is more current)
+          status: mapBackendStatus(loc.assignment_status || loc.status),
           contractorId: loc.contractor_id ? String(loc.contractor_id) : null,
           reportedTime: loc.last_reported_at ? new Date(loc.last_reported_at).toLocaleString(undefined, {
             month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
           }) : "--",
-          roadName: "",
+          roadName: loc.road_name || "",
           gridId: loc.grid_id,
           totalPotholes: loc.total_potholes,
           totalPatchy: loc.total_patchy
         }));
+        
+        // Map patches from total_patchy field in each location
+        const mappedPatches = locationsData.locations
+          .filter(loc => loc.total_patchy > 0)
+          .map((loc, index) => ({
+            id: `PA-API-${loc.id || index}`,
+            dbId: loc.id,
+            location: `${loc.latitude}, ${loc.longitude}`,
+            // Prefer assignment_status over location status
+            status: mapBackendStatus(loc.assignment_status || loc.status),
+            contractorId: loc.contractor_id ? String(loc.contractor_id) : null,
+            completedTime: loc.status === 'verified' || loc.status === 'fixed' 
+              ? (loc.verified_at ? new Date(loc.verified_at).toLocaleString(undefined, {
+                  month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+                }) : "--")
+              : "--",
+            reportedTime: loc.last_reported_at ? new Date(loc.last_reported_at).toLocaleString(undefined, {
+              month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+            }) : "--",
+            roadName: loc.road_name || "",
+            gridId: loc.grid_id,
+            totalPatchy: loc.total_patchy
+          }));
         
         // Exclude already verified items
         let verifiedIds = new Set();
@@ -435,9 +461,9 @@ function Dashboard() {
         } catch (_) {}
         
         setReports(mappedReports.filter(r => !verifiedIds.has(r.id)));
-        setPatches([]); // Patches come from road_anomalies, handled separately
+        setPatches(mappedPatches.filter(p => !verifiedIds.has(p.id)));
         setUseApi(true);
-        console.log('Loaded', mappedReports.length, 'locations from API');
+        console.log('Loaded', mappedReports.length, 'locations and', mappedPatches.length, 'patches from API');
       } else {
         // No data from API, fall back to dummy
         throw new Error('No data from API');
@@ -479,6 +505,7 @@ function Dashboard() {
   const recomputeSummary = () => {
     const reportedRoads = groupedRows.filter((row) => row.status === "Reported").length;
     const assignedRoads = groupedRows.filter((row) => row.status === "Assigned").length;
+    const inProgressRoads = groupedRows.filter((row) => row.status === "In Progress").length;
     const pendingRoads = groupedRows.filter((row) => row.status === "Pending Verification").length;
 
     // Verified roads: unique road names from localStorage entries
@@ -496,7 +523,7 @@ function Dashboard() {
     setSummary({
       reported: reportedRoads,
       assigned: assignedRoads,
-      inProgress: 0,
+      inProgress: inProgressRoads,
       pending: pendingRoads,
       verified: verifiedRoads
     });
@@ -694,6 +721,7 @@ function Dashboard() {
   const statusClass = (status) => {
     if (status === "Reported") return "status-chip";
     if (status === "Assigned") return "status-chip status-assigned";
+    if (status === "In Progress") return "status-chip status-inprogress";
     if (status === "Pending Verification")
       return "status-chip status-pending";
     if (status === "Verified") return "status-chip status-verified";
@@ -810,23 +838,32 @@ function Dashboard() {
   const doVerify = async () => {
     const r = getReportById(activeReportId);
     if (!r) return closeModal();
-    console.debug("doVerify: verifying single report", r.id, r.roadName, r.status);
+    console.debug("doVerify: verifying single report", r.id, r.roadName, r.status, "dbId:", r.dbId);
     
-    // Try to verify via API
-    const token = getAuthToken();
-    if (token && r.dbId && useApi) {
+    // Try to verify via public API (no auth required)
+    if (r.dbId && useApi) {
       try {
-        await fetch(`${API_BASE_URL}/admin/verify/${r.dbId}`, {
+        const response = await fetch(`${API_BASE_URL}/reports/verify/${r.dbId}`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ notes: 'Verified from admin dashboard' })
         });
+        
+        const data = await response.json().catch(() => ({}));
+        
+        if (!response.ok) {
+          console.error('Verify API failed:', response.status, data);
+          alert(`Verification failed: ${data.message || response.statusText}`);
+        } else {
+          console.log('Verify API success:', data);
+        }
       } catch (error) {
         console.error('Verify API error:', error);
       }
+    } else {
+      console.warn('Skipping API call - dbId:', r.dbId, 'useApi:', useApi);
     }
     
     setReports((prev) => prev.filter((x) => x.id !== r.id));
@@ -926,20 +963,24 @@ function Dashboard() {
     console.debug("doBatchVerify => roadKey", batchRoadKey, "pendingReports", pendingReports.length, "pendingPatches", pendingPatches.length);
     if (pendingReports.length === 0 && pendingPatches.length === 0) return;
     
-    // Try batch verify via API
-    const token = getAuthToken();
-    if (token && useApi) {
+    // Try batch verify via public API (no auth required)
+    if (useApi) {
       const locationIds = pendingReports.filter(r => r.dbId).map(r => r.dbId);
       if (locationIds.length > 0) {
         try {
-          await fetch(`${API_BASE_URL}/admin/verify/batch`, {
+          const response = await fetch(`${API_BASE_URL}/reports/verify/batch`, {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
+              'Content-Type': 'application/json'
             },
             body: JSON.stringify({ locationIds, notes: 'Batch verified from admin dashboard' })
           });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            console.error('Batch verify API failed:', response.status, data);
+          } else {
+            console.log('Batch verify API success:', data);
+          }
         } catch (error) {
           console.error('Batch verify API error:', error);
         }
@@ -1138,6 +1179,7 @@ function Dashboard() {
                 <option>All Status</option>
                 <option>Reported</option>
                 <option>Assigned</option>
+                <option>In Progress</option>
                 <option>Pending Verification</option>
                 <option>Verified</option>
               </select>
